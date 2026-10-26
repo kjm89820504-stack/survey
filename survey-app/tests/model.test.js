@@ -1,0 +1,13 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {validateSurvey,validateAnswers,scores} from '../lib/model.js';
+const s=JSON.parse(readFileSync(new URL('../src/template.json',import.meta.url),'utf8'));
+test('원문 평가 84문항 + 인구사회학 15필드, 사후 11문항',()=>{validateSurvey(s);assert.equal(s.questions.length,99);assert.equal(s.questions.filter(q=>/^[SU]\d/.test(q.id)).length,11);assert.equal(new Set(s.questions.map(q=>q.id)).size,99);});
+test('0점은 유효 응답이며 필수 누락·범위 초과는 거부',()=>{const scale={questions:[{type:'scale',min:0,max:10,required:true}]};assert.deepEqual(validateAnswers(scale,[0]),[0]);assert.throws(()=>validateAnswers(scale,['']));assert.throws(()=>validateAnswers(scale,[11]));assert.throws(()=>validateAnswers(scale,['5']));});
+test('복수 선택 중복·잘못된 값 거부',()=>{const multi={questions:[{type:'multi',options:['A','B'],required:true}]};assert.deepEqual(validateAnswers(multi,[[0,1]]),[[0,1]]);assert.throws(()=>validateAnswers(multi,[[0,0]]));assert.throws(()=>validateAnswers(multi,[[2]]));});
+test('필수 텍스트와 전체 응답 개수 검증',()=>{assert.throws(()=>validateAnswers(s,[]));assert.throws(()=>validateAnswers({questions:[{type:'text',required:true}]},['x'.repeat(2001)]));});
+test('POS 역채점, CBI 역채점 및 BO2 제외, UWES 평균',()=>{const a=s.questions.map(q=>q.id.startsWith('POS')?1:q.id.startsWith('BO')?1:q.id.startsWith('WE')?6:'');const v=scores(s,a);assert.equal(v.POS,4);assert.equal(v.CBI7,600/7);assert.equal(v.CBI6,500/6);assert.equal(v.UWES,6);});
+test('CBI 4문항 미만, POS/UWES 일부 누락은 결측',()=>{const a=s.questions.map(()=> '');a[s.questions.findIndex(q=>q.id==='BO1')]=1;assert.deepEqual(scores(s,a),{POS:null,CBI7:null,CBI6:null,UWES:null});});
+test('개월·비율 범위 및 정수 검증',()=>{const questions=[s.questions.find(q=>q.id==='careerM'),s.questions.find(q=>q.id==='ratio')];assert.deepEqual(validateAnswers({questions},[11,100]),[11,100]);assert.throws(()=>validateAnswers({questions},[12,50]));assert.throws(()=>validateAnswers({questions},[0,101]));assert.throws(()=>validateAnswers({questions},[0.5,50]));});
+test('공백만 있는 필수 주관식은 거부',()=>{assert.throws(()=>validateAnswers({questions:[{type:'text',required:true}]},['   ']));});
